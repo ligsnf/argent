@@ -34,7 +34,6 @@ export async function ensureDefaultLedgerAccounts() {
       type: a.type,
     })),
   );
-  revalidatePath("/accounts");
   return { seeded: true as const };
 }
 
