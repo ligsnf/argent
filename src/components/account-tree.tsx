@@ -1,9 +1,8 @@
 import { deleteLedgerAccountForm } from "@/actions/accounts";
 import { AccountNodeActions } from "@/components/account-node-actions";
 import type { SerializableLedgerTreeNode } from "@/lib/ledger-account-tree";
+import { ROOT_ACCOUNT_NAMES } from "@/lib/ledger-account-rules";
 import { Button } from "@/components/ui/button";
-
-const ROOT_ACCOUNT_NAMES = new Set(["assets", "liabilities", "equity", "income", "expenses"]);
 
 function AccountTreeLevel({
   nodes,

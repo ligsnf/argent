@@ -7,16 +7,18 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { ledgerAccount, ledgerPosting } from "@/db/schema";
 import { DEFAULT_LEDGER_ACCOUNTS } from "@/lib/default-ledger-accounts";
-
-const ACCOUNT_NAME_RE = /^[a-z][a-z0-9]*(?::[a-z][a-z0-9]*)*$/;
-const ROOT_ACCOUNT_NAMES = new Set(["assets", "liabilities", "equity", "income", "expenses"]);
-const TYPE_TO_ROOT = {
-  asset: "assets",
-  liability: "liabilities",
-  equity: "equity",
-  income: "income",
-  expense: "expenses",
-} as const;
+import {
+  ROOT_ACCOUNT_NAMES,
+  TYPE_TO_ROOT,
+  accountNamePrefixes,
+  isValidAccountNameFormat,
+  missingPrefixesToInsert,
+  nameMatchesAccountType,
+  renamedPathForRow,
+  renameTargetsCollideInternally,
+  validateRenamePaths,
+  type LedgerAccountTypeKey,
+} from "@/lib/ledger-account-rules";
 
 async function requireUserId(): Promise<string> {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -63,7 +65,7 @@ export async function createLedgerAccount(
     .toLowerCase();
   const type = String(formData.get("type") ?? "");
 
-  if (!ACCOUNT_NAME_RE.test(nameRaw)) {
+  if (!isValidAccountNameFormat(nameRaw)) {
     return {
       error:
         "Use lowercase letters and numbers only, with segments separated by colons (e.g. expenses:groceries).",
@@ -74,8 +76,9 @@ export async function createLedgerAccount(
   if (!allowed.has(type)) {
     return { error: "Pick a valid account type." };
   }
-  const expectedRoot = TYPE_TO_ROOT[type as keyof typeof TYPE_TO_ROOT];
-  if (!(nameRaw === expectedRoot || nameRaw.startsWith(`${expectedRoot}:`))) {
+  const typeKey = type as LedgerAccountTypeKey;
+  if (!nameMatchesAccountType(nameRaw, typeKey)) {
+    const expectedRoot = TYPE_TO_ROOT[typeKey];
     return { error: `Name must be under ${expectedRoot} for ${type} accounts.` };
   }
 
@@ -89,20 +92,13 @@ export async function createLedgerAccount(
     return { error: "An account with that name already exists." };
   }
 
-  const parts = nameRaw.split(":");
-  const prefixes: string[] = [];
-  for (let i = 1; i <= parts.length; i++) {
-    prefixes.push(parts.slice(0, i).join(":"));
-  }
-
+  const prefixes = accountNamePrefixes(nameRaw);
   const existingRows = await db
     .select({ name: ledgerAccount.name })
     .from(ledgerAccount)
     .where(and(eq(ledgerAccount.userId, userId), inArray(ledgerAccount.name, prefixes)));
   const existingNames = new Set(existingRows.map((r) => r.name));
-  const missing = prefixes
-    .filter((p) => !existingNames.has(p))
-    .sort((a, b) => a.split(":").length - b.split(":").length);
+  const missing = missingPrefixesToInsert(nameRaw, existingNames);
 
   try {
     for (const name of missing) {
@@ -130,42 +126,16 @@ export async function renameLedgerAccount(
     .trim()
     .toLowerCase();
 
-  if (!ACCOUNT_NAME_RE.test(nextName)) {
-    return {
-      error:
-        "Use lowercase letters and numbers only, with segments separated by colons (e.g. expenses:groceries).",
-    };
+  const pathCheck = validateRenamePaths(currentPath, nextName);
+  if (!pathCheck.ok) {
+    return { error: pathCheck.error };
   }
-
-  if (ROOT_ACCOUNT_NAMES.has(currentPath)) {
-    return { error: "Root accounts cannot be renamed." };
-  }
-
-  const currentParts = currentPath.split(":");
-  const nextParts = nextName.split(":");
-  if (nextParts.length !== currentParts.length) {
-    return { error: "Rename can only update this level's segment." };
-  }
-
-  const currentParent = currentParts.slice(0, -1).join(":");
-  const nextParent = nextParts.slice(0, -1).join(":");
-  if (currentParent !== nextParent) {
-    return { error: "Rename can only update this level's segment." };
-  }
-
-  const nextSegment = nextParts[nextParts.length - 1]!;
-  if (!/^[a-z][a-z0-9]*$/.test(nextSegment)) {
-    return { error: "Segment must use lowercase letters and numbers only." };
-  }
-
   if (nextName === currentPath) {
     return {};
   }
 
+  const currentParts = currentPath.split(":");
   const root = currentParts[0]!;
-  if (!ROOT_ACCOUNT_NAMES.has(root) || nextParts[0] !== root) {
-    return { error: "Rename cannot change account type/root." };
-  }
 
   const directRows = await db
     .select({ id: ledgerAccount.id, name: ledgerAccount.name, type: ledgerAccount.type })
@@ -190,16 +160,13 @@ export async function renameLedgerAccount(
   const renamePairs = rowsToRename.map((row) => ({
     id: row.id,
     from: row.name,
-    to: row.name === currentPath ? nextName : `${nextName}${row.name.slice(currentPath.length)}`,
+    to: renamedPathForRow(currentPath, nextName, row.name),
   }));
 
-  const nextNames = new Set<string>();
-  for (const pair of renamePairs) {
-    if (nextNames.has(pair.to)) {
-      return { error: "Rename would produce duplicate account names." };
-    }
-    nextNames.add(pair.to);
+  if (renameTargetsCollideInternally(renamePairs.map((p) => p.to))) {
+    return { error: "Rename would produce duplicate account names." };
   }
+  const nextNames = new Set(renamePairs.map((p) => p.to));
 
   const allUserAccounts = await db
     .select({ id: ledgerAccount.id, name: ledgerAccount.name })
