@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useCallback, useEffect, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useState } from "react";
 import { createLedgerAccount, type AccountFormState } from "@/actions/accounts";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const types = [
   { value: "asset", label: "Asset" },
@@ -23,24 +30,31 @@ const types = [
   { value: "income", label: "Income" },
   { value: "expense", label: "Expense" },
 ] as const;
+const typeToRoot = {
+  asset: "assets",
+  liability: "liabilities",
+  equity: "equity",
+  income: "income",
+  expense: "expenses",
+} as const;
 
 function CreateAccountFormFields({ onSuccess }: { onSuccess: () => void }) {
   const [state, formAction, pending] = useActionState<AccountFormState | undefined, FormData>(
     createLedgerAccount,
     undefined,
   );
-  const formRef = useRef<HTMLFormElement>(null);
+  const [type, setType] = useState<(typeof types)[number]["value"]>("expense");
+  const [name, setName] = useState("expenses:");
 
   useEffect(() => {
     if (state === undefined) return;
     if (!state.error) {
       onSuccess();
-      formRef.current?.reset();
     }
   }, [state, onSuccess]);
 
   return (
-    <form ref={formRef} action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-4">
       {state?.error ? (
         <p className="text-destructive text-sm" role="alert">
           {state.error}
@@ -48,25 +62,45 @@ function CreateAccountFormFields({ onSuccess }: { onSuccess: () => void }) {
       ) : null}
       <div className="space-y-2">
         <Label htmlFor="acct-name">Full name</Label>
-        <Input id="acct-name" name="name" placeholder="expenses:subscriptions" required autoComplete="off" />
+        <Input
+          id="acct-name"
+          name="name"
+          placeholder="expenses:subscriptions"
+          required
+          autoComplete="off"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
       </div>
       <div className="space-y-2">
         <Label htmlFor="acct-type">Type</Label>
-        <select
-          id="acct-type"
-          name="type"
-          required
-          className="border-input bg-background h-8 w-full rounded-lg border px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          defaultValue="expense"
+        <input type="hidden" name="type" value={type} />
+        <Select
+          value={type}
+          onValueChange={(v) => {
+            const nextType = v as (typeof types)[number]["value"];
+            const nextRoot = typeToRoot[nextType];
+            setType(nextType);
+            const normalized = name.trim().toLowerCase();
+            const suffix = normalized.includes(":")
+              ? normalized.split(":").slice(1).join(":")
+              : normalized;
+            setName(suffix ? `${nextRoot}:${suffix}` : `${nextRoot}:`);
+          }}
         >
+          <SelectTrigger id="acct-type" className="w-full" aria-label="Account type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
           {types.map((t) => (
-            <option key={t.value} value={t.value}>
+            <SelectItem key={t.value} value={t.value}>
               {t.label}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+          </SelectContent>
+        </Select>
       </div>
-      <DialogFooter className="border-0 bg-transparent p-0 shadow-none">
+      <DialogFooter className="mt-2 border-0 bg-transparent shadow-none">
         <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Create"}

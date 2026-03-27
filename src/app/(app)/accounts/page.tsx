@@ -23,7 +23,8 @@ export default async function AccountsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Chart of accounts</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Hierarchical ledger accounts (colon-separated names). Remove only works if the account has no postings yet.
+            Hierarchical ledger accounts (colon-separated names). Remove is only available on leaf
+            accounts (no sub-accounts) with no postings.
           </p>
         </div>
         <CreateAccountForm />

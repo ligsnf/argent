@@ -1,6 +1,9 @@
 import { deleteLedgerAccountForm } from "@/actions/accounts";
+import { AccountNodeActions } from "@/components/account-node-actions";
 import type { SerializableLedgerTreeNode } from "@/lib/ledger-account-tree";
 import { Button } from "@/components/ui/button";
+
+const ROOT_ACCOUNT_NAMES = new Set(["assets", "liabilities", "equity", "income", "expenses"]);
 
 function AccountTreeLevel({
   nodes,
@@ -15,17 +18,17 @@ function AccountTreeLevel({
         <li key={node.path} className="list-none py-0.5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-sm">{node.segment}</span>
-            {node.accountType ? (
-              <span className="bg-muted text-muted-foreground rounded-md px-1.5 py-0.5 text-xs capitalize">
-                {node.accountType}
-              </span>
-            ) : null}
-            {node.accountId ? (
-              <form action={deleteLedgerAccountForm.bind(null, node.accountId)}>
-                <Button type="submit" variant="ghost" size="xs" className="text-destructive hover:text-destructive h-7 px-2">
-                  Remove
-                </Button>
-              </form>
+            {!ROOT_ACCOUNT_NAMES.has(node.path) ? (
+              <>
+                <AccountNodeActions fullPath={node.path} />
+                {node.accountId && node.children.length === 0 ? (
+                  <form action={deleteLedgerAccountForm.bind(null, node.accountId)}>
+                    <Button type="submit" variant="ghost" size="xs" className="text-destructive hover:text-destructive h-7 px-2">
+                      Remove
+                    </Button>
+                  </form>
+                ) : null}
+              </>
             ) : null}
           </div>
           {node.children.length > 0 ? (
