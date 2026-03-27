@@ -2,13 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, inArray, like } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { ledgerAccount, ledgerPosting } from "@/db/schema";
 import { DEFAULT_LEDGER_ACCOUNTS } from "@/lib/default-ledger-accounts";
 
 const ACCOUNT_NAME_RE = /^[a-z][a-z0-9]*(?::[a-z][a-z0-9]*)*$/;
+const ROOT_ACCOUNT_NAMES = new Set(["assets", "liabilities", "equity", "income", "expenses"]);
+const TYPE_TO_ROOT = {
+  asset: "assets",
+  liability: "liabilities",
+  equity: "equity",
+  income: "income",
+  expense: "expenses",
+} as const;
 
 async function requireUserId(): Promise<string> {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -20,15 +28,20 @@ async function requireUserId(): Promise<string> {
 
 export async function ensureDefaultLedgerAccounts() {
   const userId = await requireUserId();
-  const [row] = await db
-    .select({ n: count() })
+  const rootDefaults = DEFAULT_LEDGER_ACCOUNTS.filter((a) => !a.name.includes(":"));
+  const existing = await db
+    .select({ name: ledgerAccount.name })
     .from(ledgerAccount)
     .where(eq(ledgerAccount.userId, userId));
-  if ((row?.n ?? 0) > 0) {
+
+  const existingNames = new Set(existing.map((row) => row.name));
+  const missing = rootDefaults.filter((a) => !existingNames.has(a.name));
+  if (missing.length === 0) {
     return { seeded: false as const };
   }
+
   await db.insert(ledgerAccount).values(
-    DEFAULT_LEDGER_ACCOUNTS.map((a) => ({
+    missing.map((a) => ({
       userId,
       name: a.name,
       type: a.type,
@@ -38,6 +51,7 @@ export async function ensureDefaultLedgerAccounts() {
 }
 
 export type AccountFormState = { error?: string };
+export type RenameAccountFormState = { error?: string };
 
 export async function createLedgerAccount(
   _prev: AccountFormState | undefined,
@@ -60,13 +74,44 @@ export async function createLedgerAccount(
   if (!allowed.has(type)) {
     return { error: "Pick a valid account type." };
   }
+  const expectedRoot = TYPE_TO_ROOT[type as keyof typeof TYPE_TO_ROOT];
+  if (!(nameRaw === expectedRoot || nameRaw.startsWith(`${expectedRoot}:`))) {
+    return { error: `Name must be under ${expectedRoot} for ${type} accounts.` };
+  }
+
+  const accountType = type as "asset" | "liability" | "equity" | "income" | "expense";
+
+  const [existingLeaf] = await db
+    .select({ id: ledgerAccount.id })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.userId, userId), eq(ledgerAccount.name, nameRaw)));
+  if (existingLeaf) {
+    return { error: "An account with that name already exists." };
+  }
+
+  const parts = nameRaw.split(":");
+  const prefixes: string[] = [];
+  for (let i = 1; i <= parts.length; i++) {
+    prefixes.push(parts.slice(0, i).join(":"));
+  }
+
+  const existingRows = await db
+    .select({ name: ledgerAccount.name })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.userId, userId), inArray(ledgerAccount.name, prefixes)));
+  const existingNames = new Set(existingRows.map((r) => r.name));
+  const missing = prefixes
+    .filter((p) => !existingNames.has(p))
+    .sort((a, b) => a.split(":").length - b.split(":").length);
 
   try {
-    await db.insert(ledgerAccount).values({
-      userId,
-      name: nameRaw,
-      type: type as "asset" | "liability" | "equity" | "income" | "expense",
-    });
+    for (const name of missing) {
+      await db.insert(ledgerAccount).values({
+        userId,
+        name,
+        type: accountType,
+      });
+    }
   } catch {
     return { error: "An account with that name already exists." };
   }
@@ -75,8 +120,131 @@ export async function createLedgerAccount(
   return {};
 }
 
+export async function renameLedgerAccount(
+  currentPath: string,
+  _prev: RenameAccountFormState | undefined,
+  formData: FormData,
+): Promise<RenameAccountFormState> {
+  const userId = await requireUserId();
+  const nextName = String(formData.get("nextPath") ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!ACCOUNT_NAME_RE.test(nextName)) {
+    return {
+      error:
+        "Use lowercase letters and numbers only, with segments separated by colons (e.g. expenses:groceries).",
+    };
+  }
+
+  if (ROOT_ACCOUNT_NAMES.has(currentPath)) {
+    return { error: "Root accounts cannot be renamed." };
+  }
+
+  const currentParts = currentPath.split(":");
+  const nextParts = nextName.split(":");
+  if (nextParts.length !== currentParts.length) {
+    return { error: "Rename can only update this level's segment." };
+  }
+
+  const currentParent = currentParts.slice(0, -1).join(":");
+  const nextParent = nextParts.slice(0, -1).join(":");
+  if (currentParent !== nextParent) {
+    return { error: "Rename can only update this level's segment." };
+  }
+
+  const nextSegment = nextParts[nextParts.length - 1]!;
+  if (!/^[a-z][a-z0-9]*$/.test(nextSegment)) {
+    return { error: "Segment must use lowercase letters and numbers only." };
+  }
+
+  if (nextName === currentPath) {
+    return {};
+  }
+
+  const root = currentParts[0]!;
+  if (!ROOT_ACCOUNT_NAMES.has(root) || nextParts[0] !== root) {
+    return { error: "Rename cannot change account type/root." };
+  }
+
+  const directRows = await db
+    .select({ id: ledgerAccount.id, name: ledgerAccount.name, type: ledgerAccount.type })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.userId, userId), eq(ledgerAccount.name, currentPath)));
+  const descendants = await db
+    .select({ id: ledgerAccount.id, name: ledgerAccount.name, type: ledgerAccount.type })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.userId, userId), like(ledgerAccount.name, `${currentPath}:%`)));
+
+  const rowsToRename = [...directRows, ...descendants];
+  if (rowsToRename.length === 0) {
+    return { error: "Account branch not found." };
+  }
+  if (directRows.length > 0) {
+    const expectedRoot = TYPE_TO_ROOT[directRows[0]!.type];
+    if (expectedRoot !== root) {
+      return { error: "Account root/type mismatch." };
+    }
+  }
+
+  const renamePairs = rowsToRename.map((row) => ({
+    id: row.id,
+    from: row.name,
+    to: row.name === currentPath ? nextName : `${nextName}${row.name.slice(currentPath.length)}`,
+  }));
+
+  const nextNames = new Set<string>();
+  for (const pair of renamePairs) {
+    if (nextNames.has(pair.to)) {
+      return { error: "Rename would produce duplicate account names." };
+    }
+    nextNames.add(pair.to);
+  }
+
+  const allUserAccounts = await db
+    .select({ id: ledgerAccount.id, name: ledgerAccount.name })
+    .from(ledgerAccount)
+    .where(eq(ledgerAccount.userId, userId));
+  const renameIds = new Set(renamePairs.map((p) => p.id));
+  const conflicting = allUserAccounts.find((row) => !renameIds.has(row.id) && nextNames.has(row.name));
+  if (conflicting) {
+    return { error: `Another account already uses "${conflicting.name}".` };
+  }
+
+  for (const pair of renamePairs.sort((a, b) => a.from.length - b.from.length)) {
+    await db
+      .update(ledgerAccount)
+      .set({ name: pair.to })
+      .where(and(eq(ledgerAccount.id, pair.id), eq(ledgerAccount.userId, userId)));
+  }
+
+  revalidatePath("/accounts");
+  return {};
+}
+
 export async function deleteLedgerAccount(accountId: string) {
   const userId = await requireUserId();
+  const [target] = await db
+    .select({ id: ledgerAccount.id, name: ledgerAccount.name })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.id, accountId), eq(ledgerAccount.userId, userId)));
+
+  if (!target) {
+    return { error: "Account not found." };
+  }
+
+  if (ROOT_ACCOUNT_NAMES.has(target.name)) {
+    return { error: "Root accounts cannot be removed." };
+  }
+
+  const [childRow] = await db
+    .select({ n: count() })
+    .from(ledgerAccount)
+    .where(and(eq(ledgerAccount.userId, userId), like(ledgerAccount.name, `${target.name}:%`)));
+
+  if ((childRow?.n ?? 0) > 0) {
+    return { error: "Remove sub-accounts first — this account still has child accounts." };
+  }
 
   const [postRow] = await db
     .select({ n: count() })
