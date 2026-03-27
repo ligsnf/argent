@@ -44,13 +44,13 @@ export function AccountNodeActions({
         <DialogTrigger render={<Button type="button" variant="ghost" size="xs" className="h-7 px-2 text-blue-500 hover:text-blue-500" />}>
           Edit
         </DialogTrigger>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="min-w-0 overflow-hidden sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Rename account</DialogTitle>
             <DialogDescription>Renaming updates this account and all descendants.</DialogDescription>
           </DialogHeader>
           <form
-            className="space-y-4"
+            className="flex min-w-0 flex-col gap-4"
             onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
@@ -67,20 +67,27 @@ export function AccountNodeActions({
             }}
           >
             {error ? (
-              <p className="text-destructive text-sm" role="alert">
+              <p className="text-destructive min-w-0 break-words text-sm" role="alert">
                 {error}
               </p>
             ) : null}
-            <p className="text-muted-foreground text-xs">
-              New full path: <code className="text-foreground">{nextPath}</code>
-            </p>
+            <div className="min-w-0 space-y-1">
+              <p className="text-muted-foreground text-xs">Renamed path (this node)</p>
+              <div className="max-h-24 min-h-0 overflow-auto rounded-md border border-border bg-muted/40 px-2 py-1.5">
+                <code className="text-foreground block break-all font-mono text-xs">{nextPath}</code>
+              </div>
+              <p className="text-muted-foreground text-[11px]">
+                Descendant paths update automatically on save.
+              </p>
+            </div>
             <Input
               value={segment}
-              onChange={(e) => setSegment(e.target.value)}
+              onChange={(e) => setSegment(e.target.value.toLowerCase())}
               autoComplete="off"
               required
+              className="min-w-0 font-mono lowercase"
             />
-            <DialogFooter className="mt-2 border-0 bg-transparent shadow-none">
+            <DialogFooter className="mt-2 min-w-0 shrink-0 border-0 bg-transparent shadow-none">
               <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
               <Button type="submit" disabled={pending}>
                 {pending ? "Saving..." : "Save"}

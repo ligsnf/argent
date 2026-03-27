@@ -54,13 +54,13 @@ function CreateAccountFormFields({ onSuccess }: { onSuccess: () => void }) {
   }, [state, onSuccess]);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="flex min-w-0 flex-col gap-4">
       {state?.error ? (
-        <p className="text-destructive text-sm" role="alert">
+        <p className="text-destructive min-w-0 break-words text-sm" role="alert">
           {state.error}
         </p>
       ) : null}
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <Label htmlFor="acct-name">Full name</Label>
         <Input
           id="acct-name"
@@ -69,10 +69,11 @@ function CreateAccountFormFields({ onSuccess }: { onSuccess: () => void }) {
           required
           autoComplete="off"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value.toLowerCase())}
+          className="font-mono lowercase"
         />
       </div>
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <Label htmlFor="acct-type">Type</Label>
         <input type="hidden" name="type" value={type} />
         <Select
@@ -100,7 +101,7 @@ function CreateAccountFormFields({ onSuccess }: { onSuccess: () => void }) {
           </SelectContent>
         </Select>
       </div>
-      <DialogFooter className="mt-2 border-0 bg-transparent shadow-none">
+      <DialogFooter className="mt-2 min-w-0 shrink-0 border-0 bg-transparent shadow-none">
         <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Create"}
@@ -126,12 +127,14 @@ export function CreateAccountForm() {
       }}
     >
       <DialogTrigger render={<Button type="button" />}>Add account</DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="min-w-0 overflow-hidden sm:max-w-md">
         <DialogHeader>
           <DialogTitle>New account</DialogTitle>
           <DialogDescription>
-            Use a hierarchical name with colons, for example{" "}
-            <code className="text-foreground">expenses:groceries</code>. Lowercase letters and numbers only.
+            Use colons between levels, for example{" "}
+            <code className="text-foreground">expenses:groceries</code> or{" "}
+            <code className="text-foreground">equity:opening-balances</code>. Each segment uses lowercase
+            letters, numbers, and hyphens only.
           </DialogDescription>
         </DialogHeader>
         <CreateAccountFormFields key={formKey} onSuccess={handleSuccess} />

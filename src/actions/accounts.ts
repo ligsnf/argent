@@ -11,11 +11,11 @@ import {
   ROOT_ACCOUNT_NAMES,
   TYPE_TO_ROOT,
   accountNamePrefixes,
-  isValidAccountNameFormat,
   missingPrefixesToInsert,
   nameMatchesAccountType,
   renamedPathForRow,
   renameTargetsCollideInternally,
+  validateAccountNameStructure,
   validateRenamePaths,
   type LedgerAccountTypeKey,
 } from "@/lib/ledger-account-rules";
@@ -65,11 +65,9 @@ export async function createLedgerAccount(
     .toLowerCase();
   const type = String(formData.get("type") ?? "");
 
-  if (!isValidAccountNameFormat(nameRaw)) {
-    return {
-      error:
-        "Use lowercase letters and numbers only, with segments separated by colons (e.g. expenses:groceries).",
-    };
+  const nameStructure = validateAccountNameStructure(nameRaw);
+  if (!nameStructure.ok) {
+    return { error: nameStructure.error };
   }
 
   const allowed = new Set(["asset", "liability", "equity", "income", "expense"]);

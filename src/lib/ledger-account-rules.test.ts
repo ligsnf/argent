@@ -1,18 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_ACCOUNT_NAME_LENGTH,
+  MAX_ACCOUNT_SEGMENTS,
+  MAX_SEGMENT_LENGTH,
   accountNamePrefixes,
   isValidAccountNameFormat,
   missingPrefixesToInsert,
   nameMatchesAccountType,
   renamedPathForRow,
   renameTargetsCollideInternally,
+  validateAccountNameStructure,
   validateRenamePaths,
+  validateSegment,
 } from "./ledger-account-rules";
 
-describe("isValidAccountNameFormat", () => {
-  it("accepts root and nested names", () => {
+describe("validateSegment", () => {
+  it("allows hyphens inside segments", () => {
+    expect(validateSegment("opening-balances")).toEqual({ ok: true });
+    expect(validateSegment("a-b")).toEqual({ ok: true });
+  });
+  it("rejects consecutive hyphens and trailing hyphen", () => {
+    expect(validateSegment("a--b").ok).toBe(false);
+    expect(validateSegment("foo-").ok).toBe(false);
+  });
+});
+
+describe("validateAccountNameStructure / isValidAccountNameFormat", () => {
+  it("accepts root and nested names including hyphens", () => {
     expect(isValidAccountNameFormat("expenses")).toBe(true);
     expect(isValidAccountNameFormat("expenses:groceries")).toBe(true);
+    expect(isValidAccountNameFormat("equity:opening-balances")).toBe(true);
     expect(isValidAccountNameFormat("expenses:me:dates:test:fire")).toBe(true);
   });
   it("rejects invalid segments", () => {
@@ -20,6 +37,26 @@ describe("isValidAccountNameFormat", () => {
     expect(isValidAccountNameFormat("expenses:")).toBe(false);
     expect(isValidAccountNameFormat(":expenses")).toBe(false);
     expect(isValidAccountNameFormat("expenses::groceries")).toBe(false);
+    expect(isValidAccountNameFormat("expenses:bad_underscore")).toBe(false);
+  });
+  it("rejects too many segments", () => {
+    const parts = Array.from({ length: MAX_ACCOUNT_SEGMENTS + 1 }, () => "x");
+    const name = parts.join(":");
+    const r = validateAccountNameStructure(name);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/segments/);
+  });
+  it("rejects segment longer than max", () => {
+    const seg = "a".repeat(MAX_SEGMENT_LENGTH + 1);
+    const r = validateAccountNameStructure(`expenses:${seg}`);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/segment/i);
+  });
+  it("rejects full path longer than max", () => {
+    const name = "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1);
+    const r = validateAccountNameStructure(name);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/256/);
   });
 });
 
@@ -60,6 +97,9 @@ describe("validateRenamePaths", () => {
   });
   it("allows segment change at same level", () => {
     expect(validateRenamePaths("expenses:meals", "expenses:food")).toEqual({ ok: true });
+  });
+  it("allows hyphenated segment rename", () => {
+    expect(validateRenamePaths("equity:old", "equity:opening-balances")).toEqual({ ok: true });
   });
   it("rejects depth change", () => {
     const r = validateRenamePaths("expenses:meals:dates", "expenses:me");
