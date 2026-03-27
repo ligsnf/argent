@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { AppNav } from "@/components/app-nav";
 import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -12,19 +13,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="bg-background flex min-h-full flex-1 flex-col">
-      <header className="border-border flex h-14 items-center justify-between border-b px-4">
+      <header className="bg-background/95 supports-backdrop-filter:bg-background/80 border-border sticky top-0 z-40 flex h-14 items-center justify-between border-b px-4 backdrop-blur">
         <div className="flex items-center gap-6">
           <Link href="/dashboard" className="text-foreground font-semibold">
             Argent
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/dashboard" className="text-muted-foreground hover:text-foreground">
-              Dashboard
-            </Link>
-            <Link href="/accounts" className="text-muted-foreground hover:text-foreground">
-              Accounts
-            </Link>
-          </nav>
+          <AppNav />
         </div>
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground hidden text-sm sm:inline">{session.user.email}</span>
