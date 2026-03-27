@@ -92,7 +92,7 @@ export default function SignupPage() {
               />
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col gap-4">
+          <CardFooter className="flex flex-col gap-4 mt-4">
             <Button type="submit" className="w-full" disabled={pending}>
               {pending ? "Creating account…" : "Sign up"}
             </Button>
