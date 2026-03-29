@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { ledgerAccount, ledgerPosting, ledgerTransaction } from "@/db/schema";
@@ -91,5 +91,18 @@ export async function createLedgerTransaction(input: TransactionInput): Promise<
   revalidatePath("/dashboard");
   revalidatePath("/transactions");
   return { transactionId: txRow.id };
+}
+
+export async function listTransactionAccountsForUser() {
+  const userId = await requireUserId();
+  return db
+    .select({
+      id: ledgerAccount.id,
+      name: ledgerAccount.name,
+      type: ledgerAccount.type,
+    })
+    .from(ledgerAccount)
+    .where(eq(ledgerAccount.userId, userId))
+    .orderBy(asc(ledgerAccount.name));
 }
 
